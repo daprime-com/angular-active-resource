@@ -21,13 +21,41 @@
 			$httpProvider.interceptors.push('resourceInterceptor');
 			$resourceProvider.defaults.actions = angular.extend(
 				$resourceProvider.defaults.actions,
-				{'update': { method:'PUT'}}
+				{
+					'update': { method:'PUT'}
+				}
 			);
+
 		}])
-		.factory('resourceInterceptor', ['$q', function($q){
+		.factory('resourceInterceptor', ['$q', '$rootScope', function($q, $rootScope){
 			return {
 				'request': function(config) {
-		      		return config;
+					return config;
+				},
+				'response': function(response){
+					var status = response.status,
+						data = response.data,
+						resource = response.resource;
+
+					if (angular.isObject(data) || angular.isArray(data)) {
+						var unregister = $rootScope.$watch(function(){
+							return response.resource;
+						}, function(resource){
+							if(! angular.isUndefined(resource)){
+								if(angular.isArray(resource)) {
+									angular.forEach(resource, function(value, key){
+										value._updateRecordHash();
+									});
+								} else {
+									resource._updateRecordHash();
+								}
+
+								unregister();
+							}
+						}, true);
+					}
+
+					return response;
 				},
 				'responseError': function(rejection) {
 					var status = rejection.status,
@@ -57,7 +85,8 @@
 				Resource.prototype = angular.extend(
 					{}, Resource.prototype, {
 						'$$errors': [],
-						'$$hash': null,
+						'$$oldAttributes': null,
+
 						hasErrors: function(){
 							return this.$$errors.length > 0;
 						},
@@ -87,9 +116,31 @@
 							});
 							return error === null ? new ValidationError() : error;
 						},
-						updateHash: function(){
+						_updateRecordHash: function(){
 							var _self = this;
-							console.log(_self);
+							_self.$$oldAttributes = angular.toJson(angular.copy(_self));
+						},
+						isRecordChanged: function(){
+							var _self = this;
+							return angular.toJson(angular.copy(_self)) !== _self.$$oldAttributes;
+						},
+						isEmpty: function(){
+							var _self = this;
+							return ! (_self && _self.id !== undefined);
+						},
+						isNewRecord: function(){
+							var _self = this;
+							return _self.id === undefined;
+						},
+						revertRecord: function(){
+							var _self = this,
+								attributes = angular.fromJson(_self.$$oldAttributes);
+
+							angular.forEach(attributes, function(value, attribute){
+								_self[attribute] = value;
+							});
+
+							_self.$$errors = [];
 						}
 					}
 				);
