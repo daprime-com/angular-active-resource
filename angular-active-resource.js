@@ -22,16 +22,13 @@
 			$resourceProvider.defaults.actions = angular.extend(
 				$resourceProvider.defaults.actions,
 				{
-					'update': { method:'PUT'}
+					'update': {method:'PUT'},
+					'create': {method:'POST'}
 				}
 			);
-
 		}])
 		.factory('resourceInterceptor', ['$q', '$rootScope', function($q, $rootScope){
 			return {
-				'request': function(config) {
-					return config;
-				},
 				'response': function(response){
 					var status = response.status,
 						data = response.data,
@@ -44,10 +41,10 @@
 							if(! angular.isUndefined(resource)){
 								if(angular.isArray(resource)) {
 									angular.forEach(resource, function(value, key){
-										value._updateRecordHash();
+										value._updateRecordHash(true);
 									});
 								} else {
-									resource._updateRecordHash();
+									resource._updateRecordHash(true);
 								}
 
 								unregister();
@@ -69,9 +66,17 @@
 				 }
 			};
 		}])
-		.factory('$activeResource', ['$resource', function($resource){
+		.factory('$activeResource', ['$resource', '$rootScope', function($resource, $rootScope){
 
 			function ActiveResource(url, params, methods, options){
+				if(!methods){methods = {};}
+				if(!options){options = {};}
+
+				options = angular.extend({}, {
+	                identifier: 'id',
+	                emitable: false
+	            }, options);
+
 				var Resource = $resource(url, params, methods, options);
 
 				var ValidationError = function(fields){
@@ -103,6 +108,13 @@
 								_self.$$errors.push(new ValidationError(error))
 							});
 						},
+						getFirstError: function(){
+							var _self = this;
+							if (angular.isUndefined(_self.$$errors[0])) {
+								return null;
+							}
+							return _self.$$errors[0];
+						},
 						getError: function(condition){
 							var error = null, _self = this;
 							angular.forEach(_self.$$errors, function(err){
@@ -116,23 +128,32 @@
 							});
 							return error === null ? new ValidationError() : error;
 						},
-						_updateRecordHash: function(){
+						_updateRecordHash: function(firstCall){
 							var _self = this;
 							_self.$$oldAttributes = angular.toJson(angular.copy(_self));
+							if(firstCall && options.emitable){
+								$rootScope.$emit('resource.loaded', {
+									name: options.emitable,
+									resource: _self
+								});
+							}
 						},
 						isRecordChanged: function(){
 							var _self = this;
 							return angular.toJson(angular.copy(_self)) !== _self.$$oldAttributes;
 						},
+						isChanged: function(){
+							return this.isRecordChanged();
+						},
 						isEmpty: function(){
 							var _self = this;
-							return ! (_self && _self.id !== undefined);
+							return !(_self && angular.isDefined(_self.id));
 						},
 						isNewRecord: function(){
-							var _self = this;
-							return _self.id === undefined;
+							var _self = this, id = _self[options.identifier];
+							return angular.isUndefined(id) || id === null || id === '';
 						},
-						revertRecord: function(){
+						revertRecord: function(a){
 							var _self = this,
 								attributes = angular.fromJson(_self.$$oldAttributes);
 
@@ -141,6 +162,17 @@
 							});
 
 							_self.$$errors = [];
+							if(angular.isFunction(a)){
+								a();
+							}
+						},
+						'$save': function(a,b,d){
+							var _self = this;
+							if (_self.isNewRecord()) {
+								return _self.$create(a,b,d);
+							}else{
+								return _self.$update(a,b,d);
+							}
 						}
 					}
 				);
