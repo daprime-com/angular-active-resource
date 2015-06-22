@@ -59,7 +59,7 @@
 						data = rejection.data,
 						resource = rejection.config.data;
 
-					if(resource && status === 422){
+					if(resource && angular.isFunction(resource.setErrors) && status === 422){
 						resource.setErrors(data);
 					}
 					return $q.reject(rejection);
