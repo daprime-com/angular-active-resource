@@ -10,7 +10,6 @@
  * ActiveResource behaves like a standart model and provides
  * functionality to check and show validation errors came from REST server.
  *
- * TODO: add _hash functionality to avoid updating and saving if model do not changed
  */
 (function(window, angular, undefined){
 	'use strict';
@@ -22,13 +21,21 @@
 			$resourceProvider.defaults.actions = angular.extend(
 				$resourceProvider.defaults.actions,
 				{
-					'update': {method:'PUT'},
-					'create': {method:'POST'}
+					'update': {
+						method: 'PUT',
+						transformRequest: function(resource){
+							return angular.toJson(resource.getDirtyAttributes());
+						}
+					}
 				}
 			);
+
 		}])
 		.factory('resourceInterceptor', ['$q', '$rootScope', function($q, $rootScope){
 			return {
+				'request': function(config) {
+					return config;
+				},
 				'response': function(response){
 					var status = response.status,
 						data = response.data,
@@ -38,13 +45,18 @@
 						var unregister = $rootScope.$watch(function(){
 							return response.resource;
 						}, function(resource){
+
 							if(! angular.isUndefined(resource)){
 								if(angular.isArray(resource)) {
 									angular.forEach(resource, function(value, key){
-										value._updateRecordHash(true);
+										if(angular.isFunction(value._updateRecordHash)){
+											value._updateRecordHash();
+										}
 									});
 								} else {
-									resource._updateRecordHash(true);
+									if(angular.isFunction(resource._updateRecordHash)){
+										resource._updateRecordHash();
+									}
 								}
 
 								unregister();
@@ -59,24 +71,44 @@
 						data = rejection.data,
 						resource = rejection.config.data;
 
-					if(resource && angular.isFunction(resource.setErrors) && status === 422){
+					if(resource && status === 422){
 						resource.setErrors(data);
 					}
 					return $q.reject(rejection);
-				 }
+				}
 			};
 		}])
-		.factory('$activeResource', ['$resource', '$rootScope', function($resource, $rootScope){
+
+		.factory('$jobResource', ['$resource', function($resource){
+			function JobResource(url, params, methods, options){
+				var Resource = $resource(url, params, methods, options);
+
+				Resource.prototype = angular.extend(
+					{}, Resource.prototype, {
+						error: false,
+						progress: 0,
+						isInProcess: function(){
+							var _self = this;
+							return _self.status === 'processing';
+						},
+
+						setProgress: function(progress){
+							var _self = this;
+							_self.progress = progress;
+						},
+
+						_updateRecordHash: function(){},
+					}
+				);
+				return Resource;
+			}
+
+			return JobResource;
+		}])
+
+		.factory('$activeResource', ['$resource', function($resource){
 
 			function ActiveResource(url, params, methods, options){
-				if(!methods){methods = {};}
-				if(!options){options = {};}
-
-				options = angular.extend({}, {
-	                identifier: 'id',
-	                emitable: false
-	            }, options);
-
 				var Resource = $resource(url, params, methods, options);
 
 				var ValidationError = function(fields){
@@ -108,13 +140,6 @@
 								_self.$$errors.push(new ValidationError(error))
 							});
 						},
-						getFirstError: function(){
-							var _self = this;
-							if (angular.isUndefined(_self.$$errors[0])) {
-								return null;
-							}
-							return _self.$$errors[0];
-						},
 						getError: function(condition){
 							var error = null, _self = this;
 							angular.forEach(_self.$$errors, function(err){
@@ -128,32 +153,50 @@
 							});
 							return error === null ? new ValidationError() : error;
 						},
-						_updateRecordHash: function(firstCall){
+						isAttributeChanged: function(attribute){
+							if (attribute.charAt(0) == '$') {
+								return false;
+							}
+							var _self = this,
+								oldData = angular.fromJson(_self.$$oldAttributes);
+							if (!oldData || angular.isUndefined(oldData[attribute])) {
+								return true;
+							}
+							var newValue = angular.copy(_self[attribute]),
+								oldValue = angular.copy(oldData[attribute]);
+							return (angular.toJson(newValue) !== angular.toJson(oldValue));
+						},
+						getDirtyAttributes: function(){
+							var _self = this,
+								modifiedData = {};
+							angular.forEach(_self, function(value, attribute){
+								if (_self.isAttributeChanged(attribute)) {
+									modifiedData[attribute] = angular.copy(value);
+								}
+							});
+							return modifiedData;
+						},
+						_updateRecordHash: function(){
 							var _self = this;
 							_self.$$oldAttributes = angular.toJson(angular.copy(_self));
-							if(firstCall && options.emitable){
-								$rootScope.$emit('resource.loaded', {
-									name: options.emitable,
-									resource: _self
-								});
-							}
 						},
 						isRecordChanged: function(){
-							var _self = this;
-							return angular.toJson(angular.copy(_self)) !== _self.$$oldAttributes;
-						},
-						isChanged: function(){
-							return this.isRecordChanged();
+							var _self = this,
+							changed = angular.toJson(angular.copy(_self)) !== _self.$$oldAttributes;
+							if(!changed && _self.hasErrors()){
+								_self.clearErrors();
+							}
+							return changed;
 						},
 						isEmpty: function(){
 							var _self = this;
-							return !(_self && angular.isDefined(_self.id));
+							return ! (_self && _self.id !== undefined);
 						},
 						isNewRecord: function(){
-							var _self = this, id = _self[options.identifier];
-							return angular.isUndefined(id) || id === null || id === '';
+							var _self = this;
+							return angular.isUndefined(_self.id);
 						},
-						revertRecord: function(a){
+						revertRecord: function(){
 							var _self = this,
 								attributes = angular.fromJson(_self.$$oldAttributes);
 
@@ -162,17 +205,15 @@
 							});
 
 							_self.$$errors = [];
-							if(angular.isFunction(a)){
-								a();
-							}
 						},
-						'$save': function(a,b,d){
+						setAttributes: function(attributes){
 							var _self = this;
-							if (_self.isNewRecord()) {
-								return _self.$create(a,b,d);
-							}else{
-								return _self.$update(a,b,d);
-							}
+							_self.$$errors = [];
+							angular.forEach(attributes, function(value, attribute){
+								_self[attribute] = value;
+							});
+
+							_self._updateRecordHash();
 						}
 					}
 				);
