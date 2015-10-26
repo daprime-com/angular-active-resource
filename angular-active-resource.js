@@ -1,6 +1,6 @@
 /**
  * @angular >=1.3.0
- * @version 0.1
+ * @version 0.6
  * @author Igor Murujev
  *
  * Active Resource module extends ngResource module
@@ -10,6 +10,7 @@
  * ActiveResource behaves like a standart model and provides
  * functionality to check and show validation errors came from REST server.
  *
+ * TODO: add _hash functionality to avoid updating and saving if model do not changed
  */
 (function(window, angular, undefined){
 	'use strict';
@@ -21,21 +22,13 @@
 			$resourceProvider.defaults.actions = angular.extend(
 				$resourceProvider.defaults.actions,
 				{
-					'update': {
-						method: 'PUT',
-						transformRequest: function(resource){
-							return angular.toJson(resource.getDirtyAttributes());
-						}
-					}
+					'update': {method:'PUT'},
+					'create': {method:'POST'}
 				}
 			);
-
 		}])
 		.factory('resourceInterceptor', ['$q', '$rootScope', function($q, $rootScope){
 			return {
-				'request': function(config) {
-					return config;
-				},
 				'response': function(response){
 					var status = response.status,
 						data = response.data,
@@ -45,7 +38,6 @@
 						var unregister = $rootScope.$watch(function(){
 							return response.resource;
 						}, function(resource){
-
 							if(! angular.isUndefined(resource)){
 								if(angular.isArray(resource)) {
 									angular.forEach(resource, function(value, key){
@@ -71,44 +63,24 @@
 						data = rejection.data,
 						resource = rejection.config.data;
 
-					if(resource && status === 422){
+					if(resource && angular.isFunction(resource.setErrors) && status === 422){
 						resource.setErrors(data);
 					}
 					return $q.reject(rejection);
-				}
+				 }
 			};
 		}])
-
-		.factory('$jobResource', ['$resource', function($resource){
-			function JobResource(url, params, methods, options){
-				var Resource = $resource(url, params, methods, options);
-
-				Resource.prototype = angular.extend(
-					{}, Resource.prototype, {
-						error: false,
-						progress: 0,
-						isInProcess: function(){
-							var _self = this;
-							return _self.status === 'processing';
-						},
-
-						setProgress: function(progress){
-							var _self = this;
-							_self.progress = progress;
-						},
-
-						_updateRecordHash: function(){},
-					}
-				);
-				return Resource;
-			}
-
-			return JobResource;
-		}])
-
-		.factory('$activeResource', ['$resource', function($resource){
+		.factory('$activeResource', ['$resource', '$rootScope', function($resource, $rootScope){
 
 			function ActiveResource(url, params, methods, options){
+				if(!methods){methods = {};}
+				if(!options){options = {};}
+
+				options = angular.extend({}, {
+	                identifier: 'id',
+	                emitable: false
+	            }, options);
+
 				var Resource = $resource(url, params, methods, options);
 
 				var ValidationError = function(fields){
@@ -139,6 +111,13 @@
 							angular.forEach(errors, function(error){
 								_self.$$errors.push(new ValidationError(error))
 							});
+						},
+						getFirstError: function(){
+							var _self = this;
+							if (angular.isUndefined(_self.$$errors[0])) {
+								return null;
+							}
+							return _self.$$errors[0];
 						},
 						getError: function(condition){
 							var error = null, _self = this;
@@ -176,27 +155,32 @@
 							});
 							return modifiedData;
 						},
-						_updateRecordHash: function(){
+						_updateRecordHash: function(firstCall){
 							var _self = this;
 							_self.$$oldAttributes = angular.toJson(angular.copy(_self));
+							if(firstCall && options.emitable){
+								$rootScope.$emit('resource.loaded', {
+									name: options.emitable,
+									resource: _self
+								});
+							}
 						},
 						isRecordChanged: function(){
-							var _self = this,
-							changed = angular.toJson(angular.copy(_self)) !== _self.$$oldAttributes;
-							if(!changed && _self.hasErrors()){
-								_self.clearErrors();
-							}
-							return changed;
+							var _self = this;
+							return angular.toJson(angular.copy(_self)) !== _self.$$oldAttributes;
+						},
+						isChanged: function(){
+							return this.isRecordChanged();
 						},
 						isEmpty: function(){
 							var _self = this;
-							return ! (_self && _self.id !== undefined);
+							return !(_self && angular.isDefined(_self.id));
 						},
 						isNewRecord: function(){
-							var _self = this;
-							return angular.isUndefined(_self.id);
+							var _self = this, id = _self[options.identifier];
+							return angular.isUndefined(id) || id === null || id === '';
 						},
-						revertRecord: function(){
+						revertRecord: function(a){
 							var _self = this,
 								attributes = angular.fromJson(_self.$$oldAttributes);
 
@@ -205,15 +189,17 @@
 							});
 
 							_self.$$errors = [];
+							if(angular.isFunction(a)){
+								a();
+							}
 						},
-						setAttributes: function(attributes){
+						'$save': function(a,b,d){
 							var _self = this;
-							_self.$$errors = [];
-							angular.forEach(attributes, function(value, attribute){
-								_self[attribute] = value;
-							});
-
-							_self._updateRecordHash();
+							if (_self.isNewRecord()) {
+								return _self.$create(a,b,d);
+							}else{
+								return _self.$update(a,b,d);
+							}
 						}
 					}
 				);
