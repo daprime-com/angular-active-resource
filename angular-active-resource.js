@@ -22,7 +22,12 @@
 			$resourceProvider.defaults.actions = angular.extend(
 				$resourceProvider.defaults.actions,
 				{
-					'update': {method:'PUT'},
+					'update': {
+						method: 'PUT',
+						transformRequest: function(resource){
+							return angular.toJson(resource.getDirtyAttributes());
+						}
+					}
 					'create': {method:'POST'}
 				}
 			);
