@@ -27,7 +27,7 @@
 						transformRequest: function(resource){
 							return angular.toJson(resource.getDirtyAttributes());
 						}
-					}
+					},
 					'create': {method:'POST'}
 				}
 			);
