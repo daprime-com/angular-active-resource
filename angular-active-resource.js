@@ -195,8 +195,11 @@
 
 							_self.$$errors = [];
 							if(angular.isFunction(a)){
-								a();
+								a(_self);
 							}
+						},
+						getId: function(){
+							return this[options.identifier];
 						},
 						'$save': function(a,b,d){
 							var _self = this;
