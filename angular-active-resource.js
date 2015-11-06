@@ -208,6 +208,52 @@
 							}else{
 								return _self.$update(a,b,d);
 							}
+						},
+						'$reload': function(fields, extraFields){
+							var _self = this,
+								_clone = angular.copy(_self),
+								params = {fields: '0', expand: '0'},
+								successFn = null,
+								errorFn = null;
+
+							/**
+							 * Compiles a list of arguments to useful variables
+							 */
+							angular.forEach(arguments, function(argument){
+								if(angular.isArray(argument)){
+									if(params.fields === '0'){
+										params.fields = argument.join();
+									}else{
+										params.expand = argument.join();
+									}
+								}else if(angular.isFunction(argument)){
+									if(successFn){
+										errorFn = argument;
+									}else{
+										successFn = argument;
+									}
+								}
+							});
+
+							/**
+							 * Updates clone resource and duplicates
+							 * requested attributes values to source
+							 */
+							_clone.$get(params, function(resource){
+								angular.forEach(resource, function(value, attr){
+									if(attr.indexOf('$') === -1){
+										_self[attr] = value;
+									}
+								});
+								if(successFn){
+									successFn(_self);
+								}
+
+							}, function(response){
+								if(errorFn){
+									errorFn(response);
+								}
+							});
 						}
 					}
 				);
