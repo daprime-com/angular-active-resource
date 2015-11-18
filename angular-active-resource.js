@@ -187,10 +187,26 @@
 						},
 						revertRecord: function(a){
 							var _self = this,
-								attributes = angular.fromJson(_self.$$oldAttributes);
+								attributes = angular.fromJson(_self.$$oldAttributes),
+								currentStateAttributes = {};
+
+							//collect current object attributes
+							angular.forEach(_self, function(value, attribute){
+								currentStateAttributes[attribute] = attribute;
+							});
 
 							angular.forEach(attributes, function(value, attribute){
 								_self[attribute] = value;
+								delete currentStateAttributes[attribute];
+							});
+
+							//currentStateAttributes now contains attributes
+							//that were created after state fix, so we need
+							//to remove them from actual resource
+							angular.forEach(currentStateAttributes, function(value, attribute){
+								if (attribute.indexOf('$') == -1) {
+									delete _self[attribute];
+								}
 							});
 
 							_self.$$errors = [];
