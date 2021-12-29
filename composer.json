@@ -1,0 +1,19 @@
+{
+    "name": "daprime-com/angular-active-resource",
+    "description": "",
+    "version": "1.0.1",
+    "keywords": ["angular", "daprime"],
+    "license": "MIT",
+    "authors": [
+    	{
+            "name": "Dmitri Klimenko",
+            "email": "dmitri@daprime.com"
+        },
+        {
+            "name": "Igor Murujev",
+            "email": "imurujev@gmail.com"
+        }
+    ],
+    "autoload": {
+    }
+}
